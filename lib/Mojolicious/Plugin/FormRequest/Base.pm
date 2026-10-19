@@ -21,3 +21,37 @@ sub after_validation ($self, $c, $errors, $validated) { $errors }
 sub stop_on_first_failure ($self, $c) { 1 }
 
 1;
+
+__END__
+
+=head1 NAME
+
+Mojolicious::Plugin::FormRequest::Base - Base class for Form Request definitions
+
+=head1 DESCRIPTION
+
+Subclass this to declare validation rules.
+
+=head1 TRUSTED
+
+=over 4
+
+=item after_validation
+
+=item attributes
+
+=item authorize
+
+=item messages
+
+=item prepare_for_validation
+
+=item rules
+
+=item stop_on_first_failure
+
+=back
+
+=cut
+
+

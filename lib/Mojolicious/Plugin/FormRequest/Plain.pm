@@ -64,3 +64,25 @@ use Mojo::Base -base;
 has 'config';
 
 1;
+
+__END__
+
+=head1 NAME
+
+Mojolicious::Plugin::FormRequest::Plain - Validate plain data without a controller
+
+=head1 DESCRIPTION
+
+=head1 TRUSTED
+
+=over 4
+
+=item make
+
+=item validate
+
+=item validated
+
+=back
+
+=cut

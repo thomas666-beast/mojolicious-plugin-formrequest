@@ -61,3 +61,33 @@ sub validate ($self, $value, $args, $params, $ctx) {
 }
 
 1;
+
+__END__
+
+=head1 NAME
+
+Mojolicious::Plugin::FormRequest::Rule - Fluent rule-object constructors
+
+=head1 DESCRIPTION
+
+=head1 TRUSTED
+
+=over 4
+
+=item exists
+
+=item ignore
+
+=item in
+
+=item message
+
+=item not_in
+
+=item unique
+
+=item validate
+
+=back
+
+=cut

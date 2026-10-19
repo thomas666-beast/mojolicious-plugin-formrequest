@@ -1,0 +1,10 @@
+^blib/
+^_build/
+^local/
+^\.git/
+^\.github/
+^\.build/
+^Mojolicious-Plugin-FormRequest-
+^\.prove$
+^cover_db/
+^nytprof\.out$

@@ -401,3 +401,29 @@ sub _message ($self, $field, $rule, $messages, $attrs, $args = []) {
 }
 
 1;
+
+__END__
+
+=head1 NAME
+
+Mojolicious::Plugin::FormRequest::Validator - Validation engine
+
+=head1 DESCRIPTION
+
+Runs rules against a controller request and returns a result hashref.
+
+=head1 TRUSTED
+
+=over 4
+
+=item validate
+
+=item validate_or_fail
+
+=item validated
+
+=back
+
+=cut
+
+

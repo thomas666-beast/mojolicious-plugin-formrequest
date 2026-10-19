@@ -59,3 +59,25 @@ sub _count_dbh ($self, $dbh, $table, $column, $value, $except) {
 }
 
 1;
+
+__END__
+
+=head1 NAME
+
+Mojolicious::Plugin::FormRequest::Db - Database adapter for unique/exists rules
+
+=head1 DESCRIPTION
+
+Wraps a DBIx::Class schema or raw DBI handle.
+
+=head1 TRUSTED
+
+=over 4
+
+=item exists
+
+=item unique
+
+=back
+
+=cut

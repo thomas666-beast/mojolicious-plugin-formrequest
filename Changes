@@ -1,9 +1,12 @@
 Revision history for Mojolicious-Plugin-FormRequest
 
 0.01  2026-10-19
-    - First version
-    - Laravel-style validation classes with rules/filters/messages/authorize/on_failure
-    - unique and exists checks backed by DBI (quote_identifier + placeholders)
-    - Automatic JSON 422 / HTML flash+redirect failure handling
-    - validate helper returns only declared fields
-    
+  - Initial scaffold and plugin registration
+  - Core FormRequest base class, Validator, app helper
+  - Full non-DB rule set, wildcards, nullable, sometimes
+  - unique and exists backed by configurable DB resolver
+  - prepareForValidation, afterValidation, stopOnFirstFailure, password rule
+  - distinct, prohibited, required_if family, rule-object support
+  - validated(), validate_or_fail(), typed Exception
+  - Plain validator facade and Rule::in/not_in/unique/exists helpers
+  - POD for the main module

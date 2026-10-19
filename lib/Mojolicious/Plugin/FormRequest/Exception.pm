@@ -21,3 +21,25 @@ sub to_hash ($self) {
 }
 
 1;
+
+__END__
+
+=head1 NAME
+
+Mojolicious::Plugin::FormRequest::Exception - Typed exception thrown by validated()
+
+=head1 DESCRIPTION
+
+Carries C<status> and C<errors> from a failed validation.
+
+=head1 TRUSTED
+
+=over 4
+
+=item to_hash
+
+=back
+
+=cut
+
+

@@ -187,3 +187,27 @@ __PACKAGE__->register_rule('unique' => sub ($value, $args, $params, $ctx) {
 });
 
 1;
+
+__END__
+
+=head1 NAME
+
+Mojolicious::Plugin::FormRequest::Rules - Built-in validation rules
+
+=head1 DESCRIPTION
+
+Registry of all validation rules used by
+L<Mojolicious::Plugin::FormRequest::Validator>.
+
+=head1 TRUSTED
+
+=over 4
+
+=item get
+
+=item register_rule
+
+=back
+
+=cut
+
