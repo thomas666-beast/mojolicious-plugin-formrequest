@@ -28,6 +28,10 @@ __PACKAGE__->register_rule('string' => sub ($value, $args, $params, $ctx) {
   return !ref $value;
 });
 
+__PACKAGE__->register_rule('password' => sub ($value, $args, $params, $ctx) {
+  return !ref $value && defined $value && $value ne '' ? 1 : 0;
+});
+
 __PACKAGE__->register_rule('integer' => sub ($value, $args, $params, $ctx) {
   return $value =~ /\A-?\d+\z/ ? 1 : 0;
 });
@@ -90,11 +94,11 @@ __PACKAGE__->register_rule('size' => sub ($value, $args, $params, $ctx) {
 });
 
 __PACKAGE__->register_rule('in' => sub ($value, $args, $params, $ctx) {
-  return grep { $_ eq $value } @$args;
+  return grep { defined $value && $_ eq $value } @$args;
 });
 
 __PACKAGE__->register_rule('not_in' => sub ($value, $args, $params, $ctx) {
-  return grep { $_ eq $value } @$args ? 0 : 1;
+  return grep { defined $value && $_ eq $value } @$args ? 0 : 1;
 });
 
 __PACKAGE__->register_rule('regex' => sub ($value, $args, $params, $ctx) {
@@ -128,24 +132,6 @@ __PACKAGE__->register_rule('array' => sub ($value, $args, $params, $ctx) {
 __PACKAGE__->register_rule('json' => sub ($value, $args, $params, $ctx) {
   require JSON::PP;
   return eval { JSON::PP->new->decode($value); 1 } ? 1 : 0;
-});
-
-# --- database-backed rules ---
-__PACKAGE__->register_rule('exists' => sub ($value, $args, $params, $ctx) {
-  my ($table, $column) = @$args;
-  $column //= 'id';
-  return $ctx->{db}->exists($table, $column, $value) ? 1 : 0;
-});
-
-__PACKAGE__->register_rule('unique' => sub ($value, $args, $params, $ctx) {
-  my ($table, $column, $except_id, $id_column) = @$args;
-  $column    //= 'id';
-  $id_column //= 'id';
-  return $ctx->{db}->unique($table, $column, $value, $except_id, $id_column) ? 1 : 0;
-});
-
-__PACKAGE__->register_rule('password' => sub ($value, $args, $params, $ctx) {
-  return !ref $value && defined $value && $value ne '' ? 1 : 0;
 });
 
 __PACKAGE__->register_rule('distinct' => sub ($value, $args, $params, $ctx) {
@@ -185,6 +171,19 @@ __PACKAGE__->register_rule('required_without' => sub ($value, $args, $params, $c
   my $missing = grep { !defined $params->{$_} || $params->{$_} eq '' } @$args;
   return 1 unless $missing;
   return defined $value && $value ne '' ? 1 : 0;
+});
+
+__PACKAGE__->register_rule('exists' => sub ($value, $args, $params, $ctx) {
+  my ($table, $column) = @$args;
+  $column //= 'id';
+  return $ctx->{db}->exists($table, $column, $value) ? 1 : 0;
+});
+
+__PACKAGE__->register_rule('unique' => sub ($value, $args, $params, $ctx) {
+  my ($table, $column, $except_id, $id_column) = @$args;
+  $column    //= 'id';
+  $id_column //= 'id';
+  return $ctx->{db}->unique($table, $column, $value, $except_id, $id_column) ? 1 : 0;
 });
 
 1;

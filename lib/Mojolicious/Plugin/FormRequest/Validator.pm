@@ -7,22 +7,27 @@ use Mojolicious::Plugin::FormRequest::Exception;
 
 has 'c';
 has 'request_class';
+has 'inline_rules';
+has 'inline_messages';
+has 'inline_attributes';
 
 sub validate ($self) {
   my $c     = $self->c;
   my $class = $self->request_class;
   my $req   = $class->new;
 
-  unless ($req->authorize($c)) {
+  my $inline = $self->inline_rules;
+
+  unless ($inline || $req->authorize($c)) {
     return { ok => 0, status => 403, errors => { _authorization => 'Forbidden' } };
   }
 
-  my $rules    = $req->rules($c)    // {};
-  my $messages = $req->messages($c) // {};
-  my $attrs    = $req->attributes($c) // {};
+  my $rules    = $self->inline_rules      // $req->rules($c)      // {};
+  my $messages = $self->inline_messages   // $req->messages($c)   // {};
+  my $attrs    = $self->inline_attributes // $req->attributes($c) // {};
 
-  my $raw = $self->_collect_input($c);
-  my $prepared = $req->prepare_for_validation($c, { %$raw });
+  my $raw      = $self->_collect_input($c);
+  my $prepared = $inline ? { %$raw } : $req->prepare_for_validation($c, { %$raw });
   my $flat     = $prepared // $raw;
 
   my $params = $self->_inflate($flat);
@@ -34,7 +39,7 @@ sub validate ($self) {
   );
   my $ctx = { c => $c, db => $db };
 
-  my $stop_on_first = $req->stop_on_first_failure($c);
+  my $stop_on_first = $inline ? 1 : $req->stop_on_first_failure($c);
 
   my %errors;
   my %validated;
@@ -121,7 +126,13 @@ sub validate ($self) {
         next unless $code;
 
         unless ($code->($value, $args, $params, $ctx)) {
-          my $tmpl = $self->_message($field_name, $name, $messages, $attrs, $args);
+          my $tmpl;
+          if ($name eq '__object' && $r->{object}->can('message')) {
+            $tmpl = $r->{object}->message;
+          }
+          else {
+            $tmpl = $self->_message($field_name, $name, $messages, $attrs, $args);
+          }
           my $msg  = $self->_interpolate_message(
             $tmpl, $field_name, $value, $attrs->{$field_name} // $field_name, $args
           );
@@ -135,9 +146,9 @@ sub validate ($self) {
     }
   }
 
-  my $after = $req->after_validation($c, \%errors, \%validated);
-  if (ref $after eq 'HASH') {
-    %errors = %$after;
+  unless ($inline) {
+    my $after = $req->after_validation($c, \%errors, \%validated);
+    if (ref $after eq 'HASH') { %errors = %$after; }
   }
 
   for my $k (keys %errors) {
@@ -150,10 +161,18 @@ sub validate ($self) {
   return { ok => 1, data => \%validated };
 }
 
-# Gather input from JSON body first (if any), then form/query params.
-# JSON wins on collision so that array values from JSON survive.
 sub _collect_input ($self, $c) {
-  my $flat = $c->req->params->to_hash // {};
+  my $params = $c->req->params;
+  my $flat;
+  if (ref($params) && eval { $params->can('to_hash') }) {
+    $flat = $params->to_hash;
+  }
+  elsif (ref $params eq 'HASH') {
+    $flat = { %$params };
+  }
+  else {
+    $flat = {};
+  }
   my $json = $c->req->json;
   if (ref $json eq 'HASH') {
     $flat = { %$flat, %$json };
