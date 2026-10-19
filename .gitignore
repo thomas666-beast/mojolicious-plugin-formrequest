@@ -1,0 +1,22 @@
+# Perl build artifacts
+/blib/
+/_build/
+/Build
+/Build.bat
+/Makefile
+/Makefile.old
+/MYMETA.json
+/MYMETA.yml
+/pm_to_blib
+/cover_db/
+*.bak
+*.swp
+*.swo
+
+# IDEs and editors
+.idea/
+.vscode/
+.project
+.classpath
+.settings/
+*.sublime-workspace
