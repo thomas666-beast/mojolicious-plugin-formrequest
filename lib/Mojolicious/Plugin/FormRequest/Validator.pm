@@ -21,8 +21,7 @@ sub validate ($self) {
   my $messages = $req->messages($c) // {};
   my $attrs    = $req->attributes($c) // {};
 
-  # prepareForValidation — subclass may mutate incoming data
-  my $raw      = $c->req->params->to_hash;
+  my $raw = $self->_collect_input($c);
   my $prepared = $req->prepare_for_validation($c, { %$raw });
   my $flat     = $prepared // $raw;
 
@@ -60,7 +59,7 @@ sub validate ($self) {
 
       my @parsed    = $self->_parse_rules($rule_str);
       my $nullable  = grep { $_->{name} eq 'nullable' } @parsed;
-      my $missing   = !defined $value || $value eq '';
+      my $missing   = !defined $value || (ref $value ne 'ARRAY' && $value eq '');
 
       if ($nullable && $missing) {
         $validated{$field_name} = $value;
@@ -87,7 +86,10 @@ sub validate ($self) {
           next;
         }
 
-        next if $missing;
+        next if $missing && $name ne 'required_if'
+                          && $name ne 'required_unless'
+                          && $name ne 'required_with'
+                          && $name ne 'required_without';
 
         if ($name eq 'confirmed') {
           my $confirm = $params->{"${field_name}_confirmation"} // '';
@@ -106,6 +108,12 @@ sub validate ($self) {
         my $code;
         if ($name eq '__custom') {
           $code = $r->{code};
+        }
+        elsif ($name eq '__object') {
+          my $obj = $r->{object};
+          $code = sub ($value, $args, $params, $ctx) {
+            return $obj->validate($value, $args, $params, $ctx);
+          };
         }
         else {
           $code = Mojolicious::Plugin::FormRequest::Rules->get($name);
@@ -127,13 +135,11 @@ sub validate ($self) {
     }
   }
 
-  # after_validation — subclass may add or remove errors
   my $after = $req->after_validation($c, \%errors, \%validated);
   if (ref $after eq 'HASH') {
     %errors = %$after;
   }
 
-  # Normalize: single-element arrayrefs become scalars.
   for my $k (keys %errors) {
     if (ref $errors{$k} eq 'ARRAY' && @{ $errors{$k} } == 1) {
       $errors{$k} = $errors{$k}[0];
@@ -142,6 +148,17 @@ sub validate ($self) {
 
   return { ok => 0, status => 422, errors => \%errors } if %errors;
   return { ok => 1, data => \%validated };
+}
+
+# Gather input from JSON body first (if any), then form/query params.
+# JSON wins on collision so that array values from JSON survive.
+sub _collect_input ($self, $c) {
+  my $flat = $c->req->params->to_hash // {};
+  my $json = $c->req->json;
+  if (ref $json eq 'HASH') {
+    $flat = { %$flat, %$json };
+  }
+  return $flat;
 }
 
 sub _push_error ($self, $errors, $field, $msg, $stop_on_first) {
@@ -181,13 +198,12 @@ sub validate_or_fail ($self) {
   return undef;
 }
 
-# Parse a rule spec into a list of { name, args, code } hashes.
 sub _parse_rules ($self, $spec) {
   my @raw;
   if (ref $spec eq 'ARRAY') {
     @raw = @$spec;
   }
-  elsif (ref $spec eq 'CODE') {
+  elsif (ref $spec eq 'CODE' || (ref $spec && $spec->can('validate'))) {
     @raw = ($spec);
   }
   elsif (defined $spec) {
@@ -198,6 +214,10 @@ sub _parse_rules ($self, $spec) {
   for my $r (@raw) {
     if (ref $r eq 'CODE') {
       push @out, { code => $r, name => '__custom', args => [] };
+      next;
+    }
+    if (ref $r && $r->can('validate')) {
+      push @out, { object => $r, name => '__object', args => [] };
       next;
     }
     next unless defined $r && $r ne '';
@@ -272,9 +292,7 @@ sub _resolve ($self, $pattern, $flat) {
   }
 
   my @parts = split /\./, $pattern;
-
   my @keys = map { [ $_, [ $_ =~ /\G(?:^|\]\[?|\[)([^\[\]]+)/g ] ] } sort keys %$flat;
-
   my @results;
 
   my $walk;
@@ -324,34 +342,41 @@ sub _message ($self, $field, $rule, $messages, $attrs, $args = []) {
   my $a1 = defined $args->[1] ? $args->[1] : '';
 
   my %defaults = (
-    required   => 'is required',
-    integer    => 'must be an integer',
-    numeric    => 'must be numeric',
-    boolean    => 'must be true or false',
-    email      => 'must be a valid email',
-    url        => 'must be a valid URL',
-    ip         => 'must be a valid IP address',
-    uuid       => 'must be a valid UUID',
-    alpha      => 'must contain only letters',
-    alpha_num  => 'must contain only letters and numbers',
-    alpha_dash => 'must contain only letters, numbers, dashes and underscores',
-    password   => 'must be a non-empty string',
-    min        => "must be at least $a0 characters",
-    max        => "must be at most $a0 characters",
-    between    => "must be between $a0 and $a1 characters",
-    size       => "must be exactly $a0 characters",
-    in         => 'is not in the allowed list',
-    not_in     => 'is in the forbidden list',
-    regex      => 'has an invalid format',
-    confirmed  => 'confirmation does not match',
-    same       => "must match $a0",
-    different  => "must differ from $a0",
-    date       => 'must be a valid date (YYYY-MM-DD)',
-    array      => 'must be an array',
-    json       => 'must be valid JSON',
-    unique     => 'has already been taken',
-    exists     => 'does not exist',
-    __custom   => 'is invalid',
+    required          => 'is required',
+    integer           => 'must be an integer',
+    numeric           => 'must be numeric',
+    boolean           => 'must be true or false',
+    email             => 'must be a valid email',
+    url               => 'must be a valid URL',
+    ip                => 'must be a valid IP address',
+    uuid              => 'must be a valid UUID',
+    alpha             => 'must contain only letters',
+    alpha_num         => 'must contain only letters and numbers',
+    alpha_dash        => 'must contain only letters, numbers, dashes and underscores',
+    password          => 'must be a non-empty string',
+    min               => "must be at least $a0 characters",
+    max               => "must be at most $a0 characters",
+    between           => "must be between $a0 and $a1 characters",
+    size              => "must be exactly $a0 characters",
+    in                => 'is not in the allowed list',
+    not_in            => 'is in the forbidden list',
+    regex             => 'has an invalid format',
+    confirmed         => 'confirmation does not match',
+    same              => "must match $a0",
+    different         => "must differ from $a0",
+    date              => 'must be a valid date (YYYY-MM-DD)',
+    array             => 'must be an array',
+    json              => 'must be valid JSON',
+    unique            => 'has already been taken',
+    exists            => 'does not exist',
+    __custom          => 'is invalid',
+    __object          => 'is invalid',
+    distinct          => 'has a duplicate value',
+    prohibited        => 'must be empty',
+    required_if       => 'is required in this case',
+    required_unless   => 'is required in this case',
+    required_with     => 'is required when its companion field is present',
+    required_without  => 'is required when its companion field is missing',
   );
   return $defaults{$rule} // "failed $rule";
 }

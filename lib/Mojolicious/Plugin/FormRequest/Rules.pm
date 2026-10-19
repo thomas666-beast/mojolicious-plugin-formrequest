@@ -148,4 +148,43 @@ __PACKAGE__->register_rule('password' => sub ($value, $args, $params, $ctx) {
   return !ref $value && defined $value && $value ne '' ? 1 : 0;
 });
 
+__PACKAGE__->register_rule('distinct' => sub ($value, $args, $params, $ctx) {
+  return 1 unless ref $value eq 'ARRAY';
+  my %seen;
+  for my $v (@$value) {
+    return 0 if $seen{$v}++;
+  }
+  return 1;
+});
+
+__PACKAGE__->register_rule('prohibited' => sub ($value, $args, $params, $ctx) {
+  return !defined $value || $value eq '' ? 1 : 0;
+});
+
+__PACKAGE__->register_rule('required_if' => sub ($value, $args, $params, $ctx) {
+  my ($other, $expected) = @$args;
+  my $v = $params->{$other};
+  return 1 unless defined $v && $v eq $expected;
+  return defined $value && $value ne '' ? 1 : 0;
+});
+
+__PACKAGE__->register_rule('required_unless' => sub ($value, $args, $params, $ctx) {
+  my ($other, $expected) = @$args;
+  my $v = $params->{$other};
+  return 1 if defined $v && $v eq $expected;
+  return defined $value && $value ne '' ? 1 : 0;
+});
+
+__PACKAGE__->register_rule('required_with' => sub ($value, $args, $params, $ctx) {
+  my $present = grep { defined $params->{$_} && $params->{$_} ne '' } @$args;
+  return 1 unless $present;
+  return defined $value && $value ne '' ? 1 : 0;
+});
+
+__PACKAGE__->register_rule('required_without' => sub ($value, $args, $params, $ctx) {
+  my $missing = grep { !defined $params->{$_} || $params->{$_} eq '' } @$args;
+  return 1 unless $missing;
+  return defined $value && $value ne '' ? 1 : 0;
+});
+
 1;
