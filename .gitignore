@@ -20,3 +20,4 @@
 .classpath
 .settings/
 *.sublime-workspace
+*.tar.gz
