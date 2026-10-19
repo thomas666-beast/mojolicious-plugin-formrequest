@@ -3,6 +3,7 @@ use Mojo::Base -base, -signatures;
 
 use Mojolicious::Plugin::FormRequest::Rules;
 use Mojolicious::Plugin::FormRequest::Db;
+use Mojolicious::Plugin::FormRequest::Exception;
 
 has 'c';
 has 'request_class';
@@ -20,7 +21,11 @@ sub validate ($self) {
   my $messages = $req->messages($c) // {};
   my $attrs    = $req->attributes($c) // {};
 
-  my $flat   = $c->req->params->to_hash;
+  # prepareForValidation — subclass may mutate incoming data
+  my $raw      = $c->req->params->to_hash;
+  my $prepared = $req->prepare_for_validation($c, { %$raw });
+  my $flat     = $prepared // $raw;
+
   my $params = $self->_inflate($flat);
   $params = { %$flat, %$params };
 
@@ -30,6 +35,8 @@ sub validate ($self) {
   );
   my $ctx = { c => $c, db => $db };
 
+  my $stop_on_first = $req->stop_on_first_failure($c);
+
   my %errors;
   my %validated;
 
@@ -37,8 +44,10 @@ sub validate ($self) {
     my @targets = $self->_resolve($pattern, $flat);
 
     unless (@targets) {
-      if ($pattern !~ /\*/ && $rules->{$pattern} =~ /\brequired\b/) {
-        $errors{$pattern} = $self->_message($pattern, 'required', $messages, $attrs);
+      if ($pattern !~ /\*/ && !ref $rules->{$pattern} && $rules->{$pattern} =~ /\brequired\b/) {
+        my $msg = $self->_message($pattern, 'required', $messages, $attrs);
+        $msg = $self->_interpolate_message($msg, $pattern, undef, $attrs->{$pattern} // $pattern, []);
+        $self->_push_error(\%errors, $pattern, $msg, $stop_on_first);
       }
       next;
     }
@@ -47,10 +56,10 @@ sub validate ($self) {
       my ($field_name, $value) = @$pair;
       my $rule_str = $rules->{$pattern};
 
-      next if $rule_str =~ /\bsometimes\b/ && !defined $value;
+      next if !ref $rule_str && $rule_str =~ /\bsometimes\b/ && !defined $value;
 
-      my @rule_list = split /\|/, $rule_str;
-      my $nullable  = grep { $_ eq 'nullable' } @rule_list;
+      my @parsed    = $self->_parse_rules($rule_str);
+      my $nullable  = grep { $_->{name} eq 'nullable' } @parsed;
       my $missing   = !defined $value || $value eq '';
 
       if ($nullable && $missing) {
@@ -60,15 +69,18 @@ sub validate ($self) {
 
       my $field_failed = 0;
 
-      for my $rule (@rule_list) {
-        next if $rule eq 'nullable' || $rule eq 'sometimes';
-
-        my ($name, $argstr) = split /:/, $rule, 2;
-        my @args = defined $argstr ? split /,/, $argstr : ();
+      for my $r (@parsed) {
+        my $name = $r->{name};
+        my $args = $r->{args};
+        next if $name eq 'nullable' || $name eq 'sometimes' || $name eq 'bail';
 
         if ($name eq 'required') {
           if ($missing) {
-            $errors{$field_name} = $self->_message($field_name, 'required', $messages, $attrs);
+            my $tmpl = $self->_message($field_name, 'required', $messages, $attrs);
+            my $msg  = $self->_interpolate_message(
+              $tmpl, $field_name, $value, $attrs->{$field_name} // $field_name, []
+            );
+            $self->_push_error(\%errors, $field_name, $msg, $stop_on_first);
             $field_failed = 1;
             last;
           }
@@ -80,20 +92,34 @@ sub validate ($self) {
         if ($name eq 'confirmed') {
           my $confirm = $params->{"${field_name}_confirmation"} // '';
           unless ($confirm eq $value) {
-            $errors{$field_name} = $self->_message($field_name, 'confirmed', $messages, $attrs);
+            my $tmpl = $self->_message($field_name, 'confirmed', $messages, $attrs);
+            my $msg  = $self->_interpolate_message(
+              $tmpl, $field_name, $value, $attrs->{$field_name} // $field_name, []
+            );
+            $self->_push_error(\%errors, $field_name, $msg, $stop_on_first);
             $field_failed = 1;
             last;
           }
           next;
         }
 
-        my $code = Mojolicious::Plugin::FormRequest::Rules->get($name);
+        my $code;
+        if ($name eq '__custom') {
+          $code = $r->{code};
+        }
+        else {
+          $code = Mojolicious::Plugin::FormRequest::Rules->get($name);
+        }
         next unless $code;
 
-        unless ($code->($value, \@args, $params, $ctx)) {
-          $errors{$field_name} = $self->_message($field_name, $name, $messages, $attrs, \@args);
+        unless ($code->($value, $args, $params, $ctx)) {
+          my $tmpl = $self->_message($field_name, $name, $messages, $attrs, $args);
+          my $msg  = $self->_interpolate_message(
+            $tmpl, $field_name, $value, $attrs->{$field_name} // $field_name, $args
+          );
+          $self->_push_error(\%errors, $field_name, $msg, $stop_on_first);
           $field_failed = 1;
-          last;
+          last if $stop_on_first;
         }
       }
 
@@ -101,8 +127,121 @@ sub validate ($self) {
     }
   }
 
+  # after_validation — subclass may add or remove errors
+  my $after = $req->after_validation($c, \%errors, \%validated);
+  if (ref $after eq 'HASH') {
+    %errors = %$after;
+  }
+
+  # Normalize: single-element arrayrefs become scalars.
+  for my $k (keys %errors) {
+    if (ref $errors{$k} eq 'ARRAY' && @{ $errors{$k} } == 1) {
+      $errors{$k} = $errors{$k}[0];
+    }
+  }
+
   return { ok => 0, status => 422, errors => \%errors } if %errors;
   return { ok => 1, data => \%validated };
+}
+
+sub _push_error ($self, $errors, $field, $msg, $stop_on_first) {
+  if ($stop_on_first) {
+    $errors->{$field} = $msg;
+  }
+  else {
+    $errors->{$field} = [] unless ref $errors->{$field} eq 'ARRAY';
+    push @{ $errors->{$field} }, $msg;
+  }
+}
+
+sub validated ($self) {
+  my $res = $self->validate;
+  if ($res->{ok}) {
+    return $res->{data};
+  }
+  die Mojolicious::Plugin::FormRequest::Exception->new(
+    status => $res->{status},
+    errors => $res->{errors},
+  );
+}
+
+sub validate_or_fail ($self) {
+  my $c   = $self->c;
+  my $res = $self->validate;
+  if ($res->{ok}) {
+    return $res->{data};
+  }
+  my $status = $res->{status} // 422;
+  if ($status == 403) {
+    $c->render(json => { ok => 0, error => 'Forbidden' }, status => 403);
+  }
+  else {
+    $c->render(json => { ok => 0, errors => $res->{errors} }, status => 422);
+  }
+  return undef;
+}
+
+# Parse a rule spec into a list of { name, args, code } hashes.
+sub _parse_rules ($self, $spec) {
+  my @raw;
+  if (ref $spec eq 'ARRAY') {
+    @raw = @$spec;
+  }
+  elsif (ref $spec eq 'CODE') {
+    @raw = ($spec);
+  }
+  elsif (defined $spec) {
+    push @raw, $self->_split_rule_string($spec);
+  }
+
+  my @out;
+  for my $r (@raw) {
+    if (ref $r eq 'CODE') {
+      push @out, { code => $r, name => '__custom', args => [] };
+      next;
+    }
+    next unless defined $r && $r ne '';
+    my ($name, $argstr) = split /:/, $r, 2;
+    my @args = defined $argstr ? split /,/, $argstr : ();
+    push @out, { name => $name, args => \@args };
+  }
+  return @out;
+}
+
+sub _split_rule_string ($self, $spec) {
+  my @out;
+  my $buf = '';
+  my $in_regex = 0;
+  for my $ch (split //, $spec) {
+    if (!$in_regex && $buf =~ /(?:^|\|)regex:$/) { $in_regex = 1; }
+    if ($in_regex) {
+      $buf .= $ch;
+      if ($ch eq '/' && $buf =~ m{regex:[^/]+/$}) { $in_regex = 0; }
+      next;
+    }
+    if ($ch eq '|') { push @out, $buf; $buf = ''; next; }
+    $buf .= $ch;
+  }
+  push @out, $buf if length $buf;
+  return @out;
+}
+
+sub _interpolate_message ($self, $template, $field, $value, $attr, $args) {
+  my $a0 = defined $args->[0] ? $args->[0] : '';
+  my $a1 = defined $args->[1] ? $args->[1] : '';
+  my %map = (
+    ':attribute' => $attr,
+    ':value'     => defined $value ? $value : '',
+    ':min'       => $a0,
+    ':max'       => $a1,
+    ':other'     => $a0,
+  );
+  my $msg = $template;
+  for my $k (keys %map) {
+    my $v = defined $map{$k} ? $map{$k} : '';
+    $msg =~ s/\Q$k\E/$v/g;
+  }
+  return $msg;
 }
 
 sub _inflate ($self, $flat) {
@@ -196,6 +335,7 @@ sub _message ($self, $field, $rule, $messages, $attrs, $args = []) {
     alpha      => 'must contain only letters',
     alpha_num  => 'must contain only letters and numbers',
     alpha_dash => 'must contain only letters, numbers, dashes and underscores',
+    password   => 'must be a non-empty string',
     min        => "must be at least $a0 characters",
     max        => "must be at most $a0 characters",
     between    => "must be between $a0 and $a1 characters",
@@ -211,6 +351,7 @@ sub _message ($self, $field, $rule, $messages, $attrs, $args = []) {
     json       => 'must be valid JSON',
     unique     => 'has already been taken',
     exists     => 'does not exist',
+    __custom   => 'is invalid',
   );
   return $defaults{$rule} // "failed $rule";
 }

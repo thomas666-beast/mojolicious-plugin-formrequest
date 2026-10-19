@@ -144,4 +144,8 @@ __PACKAGE__->register_rule('unique' => sub ($value, $args, $params, $ctx) {
   return $ctx->{db}->unique($table, $column, $value, $except_id, $id_column) ? 1 : 0;
 });
 
+__PACKAGE__->register_rule('password' => sub ($value, $args, $params, $ctx) {
+  return !ref $value && defined $value && $value ne '' ? 1 : 0;
+});
+
 1;
