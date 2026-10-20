@@ -8,11 +8,8 @@ lib/Mojolicious/Plugin/FormRequest/Plain.pm
 lib/Mojolicious/Plugin/FormRequest/Rule.pm
 lib/Mojolicious/Plugin/FormRequest/Rules.pm
 lib/Mojolicious/Plugin/FormRequest/Validator.pm
-Makefile
 Makefile.PL
 MANIFEST
-MANIFEST.bak
-MANIFEST.SKIP
 MYMETA.json
 MYMETA.yml
 README
