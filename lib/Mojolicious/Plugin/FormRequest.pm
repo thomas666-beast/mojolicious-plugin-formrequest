@@ -3,6 +3,8 @@ use Mojo::Base 'Mojolicious::Plugin', -signatures;
 
 use Mojolicious::Plugin::FormRequest::Validator;
 
+our $VERSION = '0.01';
+
 sub register ($self, $app, $conf) {
   $app->config->{FormRequest}{db} = $conf->{db} if exists $conf->{db};
 
