@@ -15,7 +15,7 @@ sub _looks_numeric ($v) {
   return defined $v && $v =~ /\A-?(?:\d+\.?\d*|\.\d+)\z/;
 }
 sub _size_of ($v) {
-  return _looks_numeric($v) ? $v + 0 : length($v // '');
+  return length($v // '');
 }
 
 __PACKAGE__->register_rule('required' => sub ($value, $args, $params, $ctx) {
@@ -91,6 +91,28 @@ __PACKAGE__->register_rule('between' => sub ($value, $args, $params, $ctx) {
 __PACKAGE__->register_rule('size' => sub ($value, $args, $params, $ctx) {
   my $n = $args->[0] // 0;
   return _size_of($value) == $n ? 1 : 0;
+});
+
+__PACKAGE__->register_rule('min_value' => sub ($value, $args, $params, $ctx) {
+  my $n = $args->[0] // 0;
+  return (_looks_numeric($value) && $value + 0 >= $n) ? 1 : 0;
+});
+
+__PACKAGE__->register_rule('max_value' => sub ($value, $args, $params, $ctx) {
+  my $n = $args->[0] // 0;
+  return (_looks_numeric($value) && $value + 0 <= $n) ? 1 : 0;
+});
+
+__PACKAGE__->register_rule('between_values' => sub ($value, $args, $params, $ctx) {
+  my ($lo, $hi) = @$args;
+  return 0 unless _looks_numeric($value);
+  my $v = $value + 0;
+  return ($v >= $lo && $v <= $hi) ? 1 : 0;
+});
+
+__PACKAGE__->register_rule('size_value' => sub ($value, $args, $params, $ctx) {
+  my $n = $args->[0] // 0;
+  return (_looks_numeric($value) && $value + 0 == $n) ? 1 : 0;
 });
 
 __PACKAGE__->register_rule('in' => sub ($value, $args, $params, $ctx) {
@@ -199,6 +221,10 @@ Mojolicious::Plugin::FormRequest::Rules - Built-in validation rules
 Registry of all validation rules used by
 L<Mojolicious::Plugin::FormRequest::Validator>.
 
+C<min>, C<max>, C<between>, C<size> measure B<string length>.
+For numeric comparison use C<min_value>, C<max_value>, C<between_values>,
+C<size_value>.
+
 =head1 TRUSTED
 
 =over 4
@@ -210,4 +236,3 @@ L<Mojolicious::Plugin::FormRequest::Validator>.
 =back
 
 =cut
-
